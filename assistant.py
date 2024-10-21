@@ -10,7 +10,7 @@ from langchain.schema.messages import SystemMessage
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from pyaudio import PyAudio, paInt16
 from speech_recognition import Microphone, Recognizer, UnknownValueError
 
@@ -97,12 +97,13 @@ class Assistant:
     def _create_inference_chain(self, model):
         SYSTEM_PROMPT = """
         You are a witty assistant that will use the chat history and the image 
-        provided by the user to answer its questions.
+        provided by the user to answer its questions. Your job is to answer 
+        questions.
 
         Use few words on your answers. Go straight to the point. Do not use any
-        emoticons or emojis. Do not ask the user any questions.
+        emoticons or emojis. 
 
-        Be friendly and helpful. Show some personality. Do not be too formal.
+        Be friendly and helpful. Show some personality.
         """
 
         prompt_template = ChatPromptTemplate.from_messages(
@@ -135,11 +136,11 @@ class Assistant:
 
 webcam_stream = WebcamStream().start()
 
-model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
+# model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
 
 # You can use OpenAI's GPT-4o model instead of Gemini Flash
 # by uncommenting the following line:
-# model = ChatOpenAI(model="gpt-4o")
+model = ChatOpenAI(model="gpt-4o")
 
 assistant = Assistant(model)
 
