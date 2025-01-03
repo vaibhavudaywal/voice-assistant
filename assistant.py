@@ -14,6 +14,8 @@ from langchain_openai import ChatOpenAI
 from pyaudio import PyAudio, paInt16
 from speech_recognition import Microphone, Recognizer, UnknownValueError
 
+from constants import SYSTEM_PROMPT
+
 load_dotenv()
 
 
@@ -37,6 +39,9 @@ class WebcamStream:
     def update(self):
         while self.running:
             _, frame = self.stream.read()
+            
+            # Resize the frame for faster encoding and processing
+            # frame = cv2.resize(frame, (320, 240))
 
             self.lock.acquire()
             self.frame = frame
@@ -60,7 +65,6 @@ class WebcamStream:
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.stream.release()
-
 
 class Assistant:
     def __init__(self, model):
@@ -95,17 +99,6 @@ class Assistant:
                 player.write(chunk)
 
     def _create_inference_chain(self, model):
-        SYSTEM_PROMPT = """
-        You are a witty assistant that will use the chat history and the image 
-        provided by the user to answer its questions. Your job is to answer 
-        questions.
-
-        Use few words on your answers. Go straight to the point. Do not use any
-        emoticons or emojis. 
-
-        Be friendly and helpful. Show some personality.
-        """
-
         prompt_template = ChatPromptTemplate.from_messages(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -137,9 +130,6 @@ class Assistant:
 webcam_stream = WebcamStream().start()
 
 # model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
-
-# You can use OpenAI's GPT-4o model instead of Gemini Flash
-# by uncommenting the following line:
 model = ChatOpenAI(model="gpt-4o")
 
 assistant = Assistant(model)
@@ -157,7 +147,8 @@ def audio_callback(recognizer, audio):
 recognizer = Recognizer()
 microphone = Microphone()
 with microphone as source:
-    recognizer.adjust_for_ambient_noise(source)
+    # Adjust for ambient noise before listening
+    recognizer.adjust_for_ambient_noise(source, duration=0.5)
 
 stop_listening = recognizer.listen_in_background(microphone, audio_callback)
 
