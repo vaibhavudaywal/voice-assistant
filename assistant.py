@@ -1,70 +1,25 @@
-import base64
-from threading import Lock, Thread
-
 import cv2
 import openai
-from cv2 import VideoCapture, imencode
-from dotenv import load_dotenv
+import argparse
+
+from pyaudio import PyAudio, paInt16
+from speech_recognition import Microphone, Recognizer, UnknownValueError
+
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema.messages import SystemMessage
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
+
 from langchain_openai import ChatOpenAI
-from pyaudio import PyAudio, paInt16
-from speech_recognition import Microphone, Recognizer, UnknownValueError
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from constants import SYSTEM_PROMPT
+from screenstream import ScreenStream
+from webcamstream import WebcamStream
 
+from dotenv import load_dotenv
 load_dotenv()
-
-
-class WebcamStream:
-    def __init__(self):
-        self.stream = VideoCapture(index=0)
-        _, self.frame = self.stream.read()
-        self.running = False
-        self.lock = Lock()
-
-    def start(self):
-        if self.running:
-            return self
-
-        self.running = True
-
-        self.thread = Thread(target=self.update, args=())
-        self.thread.start()
-        return self
-
-    def update(self):
-        while self.running:
-            _, frame = self.stream.read()
-            
-            # Resize the frame for faster encoding and processing
-            # frame = cv2.resize(frame, (320, 240))
-
-            self.lock.acquire()
-            self.frame = frame
-            self.lock.release()
-
-    def read(self, encode=False):
-        self.lock.acquire()
-        frame = self.frame.copy()
-        self.lock.release()
-
-        if encode:
-            _, buffer = imencode(".jpeg", frame)
-            return base64.b64encode(buffer)
-
-        return frame
-
-    def stop(self):
-        self.running = False
-        if self.thread.is_alive():
-            self.thread.join()
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self.stream.release()
 
 class Assistant:
     def __init__(self, model):
@@ -77,7 +32,7 @@ class Assistant:
         print("Prompt:", prompt)
 
         response = self.chain.invoke(
-            {"prompt": prompt, "image_base64": image.decode()},
+            {"prompt": prompt, "image_base64": image.decode() if image else None},
             config={"configurable": {"session_id": "unused"}},
         ).strip()
 
@@ -127,36 +82,47 @@ class Assistant:
         )
 
 
-webcam_stream = WebcamStream().start()
-
-# model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
-model = ChatOpenAI(model="gpt-4o")
-
-assistant = Assistant(model)
-
-
-def audio_callback(recognizer, audio):
+def audio_callback(recognizer, audio, stream):
     try:
         prompt = recognizer.recognize_whisper(audio, model="base", language="english")
-        assistant.answer(prompt, webcam_stream.read(encode=True))
+        assistant.answer(prompt, stream.read(encode=True))
 
     except UnknownValueError:
         print("There was an error processing the audio.")
 
 
-recognizer = Recognizer()
-microphone = Microphone()
-with microphone as source:
-    # Adjust for ambient noise before listening
-    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Assistant with Webcam or ScreenStream")
+    parser.add_argument(
+        "--stream_type", choices=["webcam", "screen"], default="screen",
+        help="Choose the type of stream: 'webcam' or 'screen' (default: screen)."
+    )
 
-stop_listening = recognizer.listen_in_background(microphone, audio_callback)
+    args = parser.parse_args()
 
-while True:
-    cv2.imshow("webcam", webcam_stream.read())
-    if cv2.waitKey(1) in [27, ord("q")]:
-        break
+    if args.stream_type == "webcam":
+        stream = WebcamStream().start()
+    else:
+        stream = ScreenStream().start()
 
-webcam_stream.stop()
-cv2.destroyAllWindows()
-stop_listening(wait_for_stop=False)
+    model = ChatGoogleGenerativeAI(model="gemini-2.0-flash-exp")
+    # model = ChatOpenAI(model="gpt-4o")
+    assistant = Assistant(model)
+
+    recognizer = Recognizer()
+    microphone = Microphone()
+    with microphone as source:
+        recognizer.adjust_for_ambient_noise(source)
+
+    stop_listening = recognizer.listen_in_background(microphone, lambda r, a: audio_callback(r, a, stream))
+
+    while True:
+        frame = stream.read()
+        if frame is not None:
+            cv2.imshow("Stream", frame)
+        if cv2.waitKey(1) in [27, ord("q")]:
+            break
+
+    stream.stop()
+    cv2.destroyAllWindows()
+    stop_listening(wait_for_stop=False)
